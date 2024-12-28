@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # Set the backend URL
-BACKEND_URL = "http://0.0.0.0:8070"
+BACKEND_URL = "http://127.0.0.1:8070"
 
 def fetch_article(aid):
     response = requests.get(f"{BACKEND_URL}/api/article/{aid}")
@@ -17,6 +17,19 @@ def fetch_user(uid):
     if response.status_code == 200:
         return response.json()
     return None
+
+def fetch_popular_rank(granularity, rid):
+    response = requests.get(f"{BACKEND_URL}/api/popular_rank/{granularity}/{rid}")
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+def fetch_all_popular_rank(granularity):
+    response = requests.get(f"{BACKEND_URL}/api/popular_rank/{granularity}")
+    if response.status_code == 200:
+        return response.json()
+    return None
+
 
 def main():
     # Initialize session state for selected article if it doesn't exist
@@ -44,7 +57,7 @@ def main():
                     for video_url in article_data['videos']:
                         st.video(video_url)
     
-    tab1, tab2 = st.tabs(["Article Query", "User Query"])
+    tab1, tab2, tab3 = st.tabs(["Article Query", "User Query", "Popular Articles"])
     
     with tab1:
         st.header("Article Query")
@@ -97,6 +110,51 @@ def main():
                                         on_click=lambda aid=item['aid']: st.session_state.update({'selected_article': aid}))
                 else:
                     st.error("User not found or error occurred")
+
+    with tab3:
+        st.header("Popular Articles")
+        
+        # Time granularity selector
+        granularity = st.selectbox(
+            "Select Time Range",
+            ["daily", "weekly", "monthly"]
+        )
+        
+        # Fetch available dates for selected granularity
+        dates_response = fetch_all_popular_rank(granularity)
+        
+        # Create a list of dates for the selectbox
+        date_options = [{"label": f"{d['date']} (Rank ID: {d['rid']})", "value": d['rid']} 
+                       for d in dates_response]
+        
+        # Date selector
+        selected_date = st.selectbox(
+            "Select Date",
+            options=[d["label"] for d in date_options],
+            index=0
+        )
+        
+        # Get rid from selected date
+        selected_rid = next(d["value"] for d in date_options if d["label"] == selected_date)
+
+        if st.button("Get Popular Articles"):
+            # Fetch popular articles for selected date
+            popular_data = fetch_popular_rank(granularity, selected_rid)
+            if popular_data:
+                st.subheader(f"Top 5 {granularity.capitalize()} Popular Articles")
+                st.write(f"For date: {popular_data['begin_date']}")
+                
+                for rank, article in enumerate(popular_data['article_list'], 1):
+                    with st.expander(f"#{rank} - Article {article['aid']}"):
+                        st.write(article['text'][:200] + "...")  # Show preview
+                        st.button(
+                            "View full article",
+                            key=f"popular_{article['aid']}",
+                            on_click=lambda aid=article['aid']: st.session_state.update({'selected_article': aid})
+                        )
+            else:
+                st.error("Failed to fetch popular articles")
+
 
 if __name__ == "__main__":
     main()

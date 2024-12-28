@@ -28,10 +28,12 @@ def article_by_id(aid):
     for db2_client in clients["db2"]:
         try:
             article = db2_client.info.article.find_one(dict(aid=aid))
-            print(article)
+            # print(article)
             text_file = article["text"]
-            text_location = convert_file_to_path(text_file).replace("localhost", "0.0.0.0").strip()
             
+            text_location = convert_file_to_path(text_file).strip()
+            print(text_location)
+
             # Fetch the text content directly like in the original backend
             text = requests.get(text_location).text
 
@@ -76,6 +78,16 @@ def get_popular_rank(grainaty, rid):
             pass
     return None
 
+def get_all_popular_rank(grainaty):
+    for client in clients["db1" if grainaty=="daily" else "db2"]:
+        try:
+            rank = client.history.popular_rank.find(dict(temporalGranularity=grainaty))
+            if rank:
+                return rank
+        except:
+            pass
+    return []
+
 @app.route("/api/article/<aid>")
 def get_article_api(aid: str):
     article_data = article_by_id(aid)
@@ -116,9 +128,36 @@ def get_popular_rank_api(grainaty: str, rid: str):
     
     timestamp = int(rank["timestamp"]) / 1000
     rank["begin_date"] = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+
+    # print(rank)
     del rank["timestamp"]
+    del rank["_id"]
     
     return rank
+
+
+@app.route("/api/popular_rank/<grainaty>")
+def get_all_popular_rank_api(grainaty: str):
+    ranks = []
+    for client in clients["db1" if grainaty=="daily" else "db2"]:
+        try:
+            ranks.extend(list(client.history.popular_rank.find({"temporalGranularity": grainaty})))
+        except:
+            pass
+            
+    if not ranks:
+        return {"error": "No ranks found"}, 404
+
+    timestamps = []
+    for rank in ranks:
+        timestamp = int(rank["timestamp"]) / 1000
+        timestamps.append({
+            "timestamp": timestamp,
+            "date": datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d'),
+            "rid": rank["id"]
+        })
+        
+    return timestamps
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=8070)
