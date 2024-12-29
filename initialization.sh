@@ -1,43 +1,61 @@
 #!/bin/bash
 
-# Bring down any currently running containers
-SECONDS=0
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
-docker-compose down
+# Set error handling
+set -e
 
-rm db-generation/articles/mapping_results.txt
+echo "Starting system initialization..."
 
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
-# Create directories
-mkdir -p ./ddbs_1_data
-mkdir -p ./ddbs_2_data
+# Script locations
+DB_SCRIPTS="./scripts/db"
+STORAGE_SCRIPTS="./scripts/storage"
+BACKUP_SCRIPTS="./scripts/backup"
+UTILS_SCRIPTS="./scripts/utils"
 
-mkdir -p ./dfs_1_data
-mkdir -p ./dfs_2_data
+# Clean up and prepare directories
+echo "Preparing directories..."
+rm -rf ./ddbs_1_data ./ddbs_2_data ./dfs_1_data ./dfs_2_data
+rm -f db-generation/articles/mapping_results.txt
 
-# Start the Docker Compose services in detached mode
+mkdir -p ./ddbs_1_data ./ddbs_2_data ./dfs_1_data ./dfs_2_data
+
+# Stop any running containers and remove volumes
+echo "Stopping existing containers..."
+docker-compose down -v
+
+# Start services
+echo "Starting docker services..."
 docker-compose up -d
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
 
-# Run your Python script
+# Wait for services to be ready
+echo "Waiting for services to initialize..."
+sleep 5
+
+# Clear databases and storage
+echo "Clearing existing data..."
+bash "$DB_SCRIPTS/mongo_drop.sh"
+bash "$STORAGE_SCRIPTS/clear_storage.sh"
+
+# Load initial data
+echo "Loading initial data..."
 python3 bulk_load_data.py
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
-sleep 5;
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
+sleep 5
 python3 post_bulk_load_data.py
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
+
+# Generate additional data
+echo "Generating additional data..."
 docker exec -it python-app bash -c "cd /usr/src/app/ && python3 ./generate_beread.py"
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
 docker exec -it python-app bash -c "cd /usr/src/app/ && python3 ./generate_popular_rank.py"
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
 
-docker cp bulk_load_file.sh storage0:/etc/fdfs_buffer/
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
+# Set up and load files
+echo "Setting up file storage..."
+docker cp "$STORAGE_SCRIPTS/bulk_load_file.sh" storage0:/etc/fdfs_buffer/
 
-echo "Uploading Files"
+echo "Loading files into storage..."
 docker exec -it storage0 bash -c "cd /etc/fdfs_buffer/ && bash ./bulk_load_file.sh"
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
 
+# Update file paths
+echo "Updating file paths..."
 mv db-generation/articles/mapping_results.txt backend/mapping_results.txt
 python3 ./update_file_path.py
-echo "Line $LINENO: $(date) - Command took $SECONDS seconds"; SECONDS=0
+
+echo "Initialization completed successfully at $(date)"
